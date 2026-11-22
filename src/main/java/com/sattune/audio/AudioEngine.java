@@ -3,21 +3,27 @@ package com.sattune.audio;
 import com.sattune.model.Song;
 
 import javax.sound.sampled.*;
-import java.io.*;
+import javax.sound.sampled.spi.AudioFileReader;
+import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.ServiceLoader;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Audio engine that handles MP3 (via JLayer SPI) and PCM formats (via
- * javax.sound.sampled).  Runs decoding on a dedicated daemon thread.
- *
- * Key design decisions:
- * - Pause/resume via blocking on a lock rather than stopping the stream.
- * - Volume via FloatControl.MASTER_GAIN on the SourceDataLine.
- * - Position tracking via byte counters — accurate to frame size.
- * - Seeking is done by re-opening the stream and skipping bytes.
+ * Robust audio engine supporting MP3, M4A/AAC, FLAC, WAV, and OGG Vorbis.
+ * 
+ * Features:
+ * - Content-based format detection (never relies purely on file extension).
+ * - Priority-ordered decoder selection with safe fallback across all registered SPI readers.
+ * - Protection against unchecked decoder exceptions (e.g. JAAD NullPointerException).
+ * - Signed 16-bit little-endian PCM normalization for cross-platform audio line compatibility.
+ * - Non-blocking track switching with immediate line flush/stop.
+ * - Position clamping so elapsed time never exceeds track duration.
+ * - Buffered streaming with low RAM and CPU usage.
  */
 public class AudioEngine {
 
@@ -34,25 +40,28 @@ public class AudioEngine {
 
     // ── State ────────────────────────────────────────────────────────────────
 
-    private volatile State           state     = State.STOPPED;
-    private volatile Song            currentSong;
-    private volatile float           volume    = 0.8f;   // 0.0–1.0
+    private volatile State              state        = State.STOPPED;
+    private volatile Song               currentSong;
+    private volatile float              volume       = 0.8f;   // 0.0–1.0
 
-    private Thread                   playThread;
-    private final Object             pauseLock = new Object();
-    private final AtomicBoolean      paused    = new AtomicBoolean(false);
-    private final AtomicBoolean      stopFlag  = new AtomicBoolean(false);
-    private final AtomicLong         seekTarget= new AtomicLong(-1); // ms, -1 = no seek
+    private Thread                      playThread;
+    private final Object                pauseLock    = new Object();
+    private final AtomicBoolean         paused       = new AtomicBoolean(false);
+    private final AtomicBoolean         stopFlag     = new AtomicBoolean(false);
+    private final AtomicLong            seekTarget   = new AtomicLong(-1);
 
-    private PlaybackListener         listener;
+    private volatile SourceDataLine     activeLine;
+    private volatile AudioInputStream   activeStream;
+
+    private PlaybackListener            listener;
 
     // ── Public API ───────────────────────────────────────────────────────────
 
     public void setListener(PlaybackListener l) { this.listener = l; }
 
-    public State getState()   { return state; }
-    public Song  getCurrentSong() { return currentSong; }
-    public float getVolume()  { return volume; }
+    public State getState()          { return state; }
+    public Song  getCurrentSong()    { return currentSong; }
+    public float getVolume()         { return volume; }
 
     /** Start playing a song from the beginning. */
     public synchronized void play(Song song) {
@@ -96,7 +105,7 @@ public class AudioEngine {
         paused.set(false);
         stopFlag.set(false);
         seekTarget.set(-1);
-        playThread = new Thread(() -> decode(song, posMs), "sattune-audio");
+        playThread = new Thread(() -> decode(song, Math.max(0, posMs)), "sattune-audio");
         playThread.setDaemon(true);
         playThread.start();
         setState(State.PLAYING);
@@ -105,7 +114,7 @@ public class AudioEngine {
     /** Set volume 0.0–1.0. */
     public void setVolume(float v) {
         this.volume = Math.max(0f, Math.min(1f, v));
-        // Applied to active line inside the decode loop
+        applyVolume(activeLine);
     }
 
     // ── Internal ─────────────────────────────────────────────────────────────
@@ -114,8 +123,19 @@ public class AudioEngine {
         stopFlag.set(true);
         paused.set(false);
         synchronized (pauseLock) { pauseLock.notifyAll(); }
-        if (playThread != null && playThread.isAlive()) {
-            try { playThread.join(2000); } catch (InterruptedException ignored) {}
+
+        // Immediately stop active line and stream to unblock line.write() and stream.read()
+        SourceDataLine line = activeLine;
+        if (line != null) {
+            try { line.stop(); line.flush(); } catch (Exception ignored) {}
+        }
+        AudioInputStream stream = activeStream;
+        if (stream != null) {
+            try { stream.close(); } catch (Exception ignored) {}
+        }
+
+        if (playThread != null && playThread.isAlive() && Thread.currentThread() != playThread) {
+            try { playThread.join(400); } catch (InterruptedException ignored) {}
         }
     }
 
@@ -128,8 +148,8 @@ public class AudioEngine {
 
     private void decode(Song song, long startMs) {
         File file = new File(song.getFilePath());
-        if (!file.exists()) {
-            notifyError("File not found: " + file.getName());
+        if (!file.exists() || !file.isFile() || file.length() == 0) {
+            notifyError("File not found or empty: " + file.getName());
             return;
         }
 
@@ -138,18 +158,19 @@ public class AudioEngine {
         SourceDataLine   line       = null;
 
         try {
-            rawStream = AudioSystem.getAudioInputStream(file);
+            rawStream = getAudioInputStreamSafely(file);
+            activeStream = rawStream;
             AudioFormat baseFormat = rawStream.getFormat();
 
             AudioInputStream targetStream = rawStream;
             AudioFormat pcmFormat = baseFormat;
 
-            // Audio output on modern platforms (ALSA/Pulse/PipeWire/DirectSound) requires
-            // signed 16-bit little-endian PCM format!
-            if (baseFormat.getEncoding() != AudioFormat.Encoding.PCM_SIGNED 
-                    || baseFormat.getSampleSizeInBits() != 16 
+            // Output format conversion: modern hardware DACs (ALSA, Pulse, PipeWire, DirectSound, CoreAudio)
+            // require signed 16-bit little-endian PCM format.
+            if (baseFormat.getEncoding() != AudioFormat.Encoding.PCM_SIGNED
+                    || baseFormat.getSampleSizeInBits() != 16
                     || baseFormat.isBigEndian()) {
-                float sampleRate = baseFormat.getSampleRate() > 0 ? baseFormat.getSampleRate() : 44100;
+                float sampleRate = baseFormat.getSampleRate() > 0 ? baseFormat.getSampleRate() : 44100.0f;
                 int channels = baseFormat.getChannels() > 0 ? baseFormat.getChannels() : 2;
                 pcmFormat = new AudioFormat(
                         AudioFormat.Encoding.PCM_SIGNED,
@@ -158,25 +179,29 @@ public class AudioEngine {
                         channels,
                         channels * 2,
                         sampleRate,
-                        false); // Always little-endian for hardware DAC
+                        false); // Little-endian DAC standard
                 pcmStream = AudioSystem.getAudioInputStream(pcmFormat, rawStream);
                 targetStream = pcmStream;
+                activeStream = pcmStream;
             }
 
             DataLine.Info info = new DataLine.Info(SourceDataLine.class, pcmFormat);
             line = getBestSourceDataLine(info, pcmFormat);
+            activeLine = line;
+
+            // Open buffer with 64KB for smooth, glitch-free audio
             line.open(pcmFormat, 65536);
             line.start();
 
             applyVolume(line);
 
-            // Seek: skip bytes proportional to startMs
-            long totalFrames      = targetStream.getFrameLength();
-            float frameRate       = pcmFormat.getFrameRate();
-            int   frameSize       = pcmFormat.getFrameSize();
-            long durationMs       = song.getDurationMs() > 0 ? song.getDurationMs()
-                                    : (totalFrames > 0 && frameRate > 0 ? (long)(totalFrames / frameRate * 1000) : 0);
+            float frameRate = pcmFormat.getFrameRate();
+            int   frameSize = pcmFormat.getFrameSize();
+            long totalFrames = targetStream.getFrameLength();
+            long durationMs = song.getDurationMs() > 0 ? song.getDurationMs()
+                    : (totalFrames > 0 && frameRate > 0 ? (long)(totalFrames / frameRate * 1000) : 0);
 
+            // Seek support: skip bytes proportional to startMs
             if (startMs > 0 && frameRate > 0 && frameSize > 0) {
                 long skipFrames = (long)(startMs / 1000.0 * frameRate);
                 long skipBytes  = skipFrames * frameSize;
@@ -185,12 +210,16 @@ public class AudioEngine {
 
             // Bytes decoded so far (after seek)
             long bytesDecoded = startMs > 0 && frameRate > 0 && frameSize > 0
-                              ? (long)(startMs / 1000.0 * frameRate) * frameSize : 0L;
+                    ? (long)(startMs / 1000.0 * frameRate) * frameSize : 0L;
 
             byte[] buffer = new byte[8192];
-            int    read;
+            int read;
 
             while (!stopFlag.get() && (read = targetStream.read(buffer, 0, buffer.length)) != -1) {
+                // VorbisSPI may return 0 bytes while decoding header packets — continue without error
+                if (read == 0) {
+                    continue;
+                }
 
                 // Handle pause
                 while (paused.get() && !stopFlag.get()) {
@@ -200,15 +229,16 @@ public class AudioEngine {
                 }
                 if (stopFlag.get()) break;
 
-                // Apply volume change
-                applyVolume(line);
-
+                // Write decoded PCM to hardware audio line
                 line.write(buffer, 0, read);
                 bytesDecoded += read;
 
-                // Report position
+                // Report position with strict clamping to track duration
                 if (listener != null && frameRate > 0 && frameSize > 0) {
                     long posMs = (long)(bytesDecoded / (double) frameSize / frameRate * 1000);
+                    if (durationMs > 0 && posMs > durationMs) {
+                        posMs = durationMs; // Clamp: elapsed never exceeds duration
+                    }
                     listener.onPositionChanged(posMs, durationMs);
                 }
             }
@@ -221,9 +251,11 @@ public class AudioEngine {
         } catch (Exception e) {
             if (!stopFlag.get()) {
                 LOG.log(Level.WARNING, "Playback error for: " + song.getFilePath(), e);
-                notifyError("Cannot play: " + song.getTitle() + " — " + e.getMessage());
+                notifyError("Cannot play: " + song.getTitle() + " — " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
             }
         } finally {
+            activeLine = null;
+            activeStream = null;
             closeQuietly(line, pcmStream, rawStream);
         }
     }
@@ -266,14 +298,58 @@ public class AudioEngine {
         return (SourceDataLine) AudioSystem.getLine(info);
     }
 
+    /**
+     * Safely acquires an AudioInputStream using content-based format detection.
+     * Orders decoder SPI readers according to the detected container and tries
+     * compatible readers first, preventing unchecked exceptions (like JAAD NPE)
+     * from crashing playback.
+     */
+    private AudioInputStream getAudioInputStreamSafely(File file) throws Exception {
+        AudioFormatDetector.AudioType detected = AudioFormatDetector.detect(file);
+        List<AudioFileReader> orderedReaders = new ArrayList<>();
+
+        // Prioritize reader matching the detected real audio format
+        for (AudioFileReader r : ServiceLoader.load(AudioFileReader.class)) {
+            String name = r.getClass().getName();
+            if (detected == AudioFormatDetector.AudioType.MP3 && name.contains("Mpeg")) {
+                orderedReaders.add(0, r);
+            } else if (detected == AudioFormatDetector.AudioType.M4A_AAC && name.contains("AAC")) {
+                orderedReaders.add(0, r);
+            } else if (detected == AudioFormatDetector.AudioType.FLAC && name.contains("Flac")) {
+                orderedReaders.add(0, r);
+            } else if (detected == AudioFormatDetector.AudioType.OGG && name.contains("Vorbis")) {
+                orderedReaders.add(0, r);
+            } else if (detected == AudioFormatDetector.AudioType.WAV && name.contains("Wave")) {
+                orderedReaders.add(0, r);
+            } else {
+                orderedReaders.add(r);
+            }
+        }
+
+        Throwable lastError = null;
+        for (AudioFileReader reader : orderedReaders) {
+            try {
+                AudioInputStream stream = reader.getAudioInputStream(file);
+                if (stream != null) {
+                    return stream;
+                }
+            } catch (Throwable t) {
+                lastError = t;
+            }
+        }
+
+        throw new UnsupportedAudioFileException("Unsupported or corrupted audio: " + file.getName()
+                + (lastError != null && lastError.getMessage() != null ? " (" + lastError.getMessage() + ")" : ""));
+    }
+
     private void applyVolume(SourceDataLine line) {
         if (line == null) return;
         try {
             if (line.isControlSupported(FloatControl.Type.MASTER_GAIN)) {
                 FloatControl gain = (FloatControl) line.getControl(FloatControl.Type.MASTER_GAIN);
-                // Convert linear 0–1 to dB
+                // Convert linear 0.0–1.0 to decibels (dB)
                 float dB = volume <= 0.0001f ? gain.getMinimum()
-                         : (float)(20.0 * Math.log10(volume));
+                        : (float)(20.0 * Math.log10(volume));
                 dB = Math.max(gain.getMinimum(), Math.min(gain.getMaximum(), dB));
                 gain.setValue(dB);
             }
@@ -293,9 +369,13 @@ public class AudioEngine {
     }
 
     private void closeQuietly(SourceDataLine line, AudioInputStream... streams) {
-        if (line != null) { try { line.stop(); line.close(); } catch (Exception ignored) {} }
+        if (line != null) {
+            try { line.stop(); line.close(); } catch (Exception ignored) {}
+        }
         for (AudioInputStream s : streams) {
-            if (s != null) { try { s.close(); } catch (Exception ignored) {} }
+            if (s != null) {
+                try { s.close(); } catch (Exception ignored) {}
+            }
         }
     }
 

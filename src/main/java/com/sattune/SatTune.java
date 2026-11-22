@@ -27,13 +27,17 @@ public class SatTune {
         // Apply FlatLaf dark theme before any Swing component is created
         try {
             FlatDarkLaf.setup();
-            // Fine-tune FlatLaf properties to match our palette
+            // Fine-tune FlatLaf properties to match our palette and curved modern style
             UIManager.put("Panel.background",          Theme.BG_MAIN);
             UIManager.put("OptionPane.background",     Theme.BG_SECONDARY);
             UIManager.put("TextField.background",      Theme.BG_MAIN);
             UIManager.put("TextField.foreground",      Theme.TEXT_PRIMARY);
             UIManager.put("TextField.caretForeground", Theme.TEXT_PRIMARY);
+            UIManager.put("TextField.arc",             12);
+            UIManager.put("Button.arc",                12);
+            UIManager.put("Component.arc",             12);
             UIManager.put("PopupMenu.background",      Theme.BG_SECONDARY);
+            UIManager.put("PopupMenu.borderColor",     Theme.BORDER);
             UIManager.put("MenuItem.background",       Theme.BG_SECONDARY);
             UIManager.put("MenuItem.foreground",       Theme.TEXT_PRIMARY);
             UIManager.put("MenuItem.selectionBackground", Theme.BG_HOVER);
@@ -41,7 +45,8 @@ public class SatTune {
             UIManager.put("SplitPaneDivider.background", Theme.BORDER);
             UIManager.put("ScrollBar.thumb",           Theme.BG_HOVER);
             UIManager.put("ScrollBar.track",           Theme.BG_MAIN);
-            UIManager.put("ScrollBar.width",           6);
+            UIManager.put("ScrollBar.thumbArc",        10);
+            UIManager.put("ScrollBar.width",           8);
             UIManager.put("Component.focusWidth",      0);
             UIManager.put("Component.innerFocusWidth", 0);
         } catch (Exception e) {

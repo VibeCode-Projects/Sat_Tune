@@ -15,7 +15,7 @@ public final class Theme {
     public static final Color BG_SIDEBAR   = hex("#0D0D0D");
     public static final Color BG_SECONDARY = hex("#141414");
     public static final Color BG_HOVER     = hex("#1B1B1B");
-    public static final Color BG_SELECTED  = hex("#202020");
+    public static final Color BG_SELECTED  = hex("#241D35");
     public static final Color BORDER       = hex("#252525");
     public static final Color TEXT_PRIMARY = hex("#F5F5F5");
     public static final Color TEXT_SECONDARY= hex("#888888");
@@ -30,19 +30,21 @@ public final class Theme {
 
     // ── Dimensions ────────────────────────────────────────────────────────────
 
-    public static final int SIDEBAR_WIDTH   = 200;
-    public static final int PLAYBAR_HEIGHT  = 76;
-    public static final int ARTWORK_SIZE_SM = 40;
-    public static final int ARTWORK_SIZE_MD = 48;
-    public static final int ARC             = 6;   // border radius
+    public static final int SIDEBAR_WIDTH   = 220;
+    public static final int PLAYBAR_HEIGHT  = 84;
+    public static final int ARTWORK_SIZE_SM = 44;
+    public static final int ARTWORK_SIZE_MD = 52;
+    public static final int ARC             = 12;  // curved border radius (cards, buttons, inputs)
+    public static final int ARC_SM          = 8;   // subtle curve
+    public static final int ARC_LG          = 18;  // rounded pills & badges
 
     // ── Fonts ─────────────────────────────────────────────────────────────────
 
-    public static final Font FONT_TITLE   = new Font("Inter", Font.PLAIN, 13);
-    public static final Font FONT_LABEL   = new Font("Inter", Font.PLAIN, 12);
-    public static final Font FONT_SMALL   = new Font("Inter", Font.PLAIN, 11);
-    public static final Font FONT_HEADING = new Font("Inter", Font.PLAIN, 14);
-    public static final Font FONT_LOGO    = new Font("Inter", Font.BOLD,  15);
+    public static final Font FONT_TITLE   = new Font("Inter", Font.PLAIN, 14);
+    public static final Font FONT_LABEL   = new Font("Inter", Font.PLAIN, 13);
+    public static final Font FONT_SMALL   = new Font("Inter", Font.PLAIN, 12);
+    public static final Font FONT_HEADING = new Font("Inter", Font.BOLD,  16);
+    public static final Font FONT_LOGO    = new Font("Inter", Font.BOLD,  17);
 
     public static Font resolveFont(String name, int style, int size) {
         Font f = new Font(name, style, size);

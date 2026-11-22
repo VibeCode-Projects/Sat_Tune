@@ -61,8 +61,8 @@ public class MainWindow extends JFrame {
 
         setTitle("Sattune");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setMinimumSize(new Dimension(900, 580));
-        setPreferredSize(new Dimension(1100, 680));
+        setMinimumSize(new Dimension(980, 640));
+        setPreferredSize(new Dimension(1180, 750));
         setBackground(Theme.BG_MAIN);
 
         // ── Build views ───────────────────────────────────────────────────────

@@ -1,6 +1,8 @@
 package com.sattune.model;
 
+import java.io.File;
 import java.util.Objects;
+import java.util.regex.Pattern;
 
 /**
  * Immutable-ish Song model.
@@ -8,7 +10,11 @@ import java.util.Objects;
  */
 public class Song {
 
-    private String id;           // UUID-style unique key
+    private static final Pattern UUID_PATTERN = Pattern.compile(
+            "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
+    private static final Pattern HEX_HASH_PATTERN = Pattern.compile("^[0-9a-fA-F]{24,}$");
+
+    private String id;           // UUID-style internal key
     private String filePath;     // Absolute path to audio file
     private String title;
     private String artist;
@@ -24,9 +30,9 @@ public class Song {
                 String album, long durationMs) {
         this.id          = id;
         this.filePath    = filePath;
-        this.title       = title;
-        this.artist      = artist;
-        this.album       = album;
+        this.title       = sanitizeTitle(title, filePath);
+        this.artist      = sanitizeArtist(artist);
+        this.album       = (album != null && !album.isBlank()) ? album.trim() : "Unknown Album";
         this.durationMs  = durationMs;
         this.addedAt     = System.currentTimeMillis();
         this.lastPlayedAt = 0L;
@@ -41,17 +47,42 @@ public class Song {
     public String getFilePath()              { return filePath; }
     public void   setFilePath(String filePath){ this.filePath = filePath; }
 
-    public String getTitle()             { return title != null ? title : "Unknown"; }
-    public void   setTitle(String title) { this.title = title; }
+    public String getTitle() {
+        if (title == null || title.isBlank() || isUuidOrInternalId(title)) {
+            return sanitizeTitle(null, filePath);
+        }
+        return title;
+    }
 
-    public String getArtist()              { return artist != null ? artist : "Unknown Artist"; }
-    public void   setArtist(String artist) { this.artist = artist; }
+    public void setTitle(String title) {
+        this.title = sanitizeTitle(title, this.filePath);
+    }
 
-    public String getAlbum()             { return album != null ? album : "Unknown Album"; }
-    public void   setAlbum(String album) { this.album = album; }
+    public String getArtist() {
+        return (artist != null && !artist.isBlank()) ? artist : "Unknown Artist";
+    }
 
-    public long getDurationMs()              { return durationMs; }
-    public void setDurationMs(long duration) { this.durationMs = duration; }
+    public void setArtist(String artist) {
+        this.artist = sanitizeArtist(artist);
+    }
+
+    public String getAlbum() {
+        return (album != null && !album.isBlank()) ? album : "Unknown Album";
+    }
+
+    public void setAlbum(String album) {
+        this.album = (album != null && !album.isBlank()) ? album.trim() : "Unknown Album";
+    }
+
+    public long getDurationMs() {
+        return durationMs;
+    }
+
+    public void setDurationMs(long duration) {
+        if (duration > 0) {
+            this.durationMs = duration;
+        }
+    }
 
     public boolean isFavourite()                 { return favourite; }
     public void    setFavourite(boolean favourite){ this.favourite = favourite; }
@@ -69,6 +100,44 @@ public class Song {
         return String.format("%d:%02d", totalSec / 60, totalSec % 60);
     }
 
+    // ── Title sanitization & internal ID protection ──────────────────────────
+
+    public static boolean isUuidOrInternalId(String text) {
+        if (text == null) return false;
+        String t = text.trim();
+        return UUID_PATTERN.matcher(t).matches() || HEX_HASH_PATTERN.matcher(t).matches();
+    }
+
+    public static String sanitizeTitle(String candidateTitle, String filePath) {
+        if (candidateTitle != null && !candidateTitle.isBlank() && !isUuidOrInternalId(candidateTitle)) {
+            return candidateTitle.trim();
+        }
+
+        // Fallback: derive clean title from filename
+        if (filePath != null && !filePath.isBlank()) {
+            File f = new File(filePath);
+            String name = f.getName();
+            int dot = name.lastIndexOf('.');
+            String base = (dot > 0) ? name.substring(0, dot) : name;
+
+            // If filename itself is not a UUID/hash, clean it up
+            if (!isUuidOrInternalId(base)) {
+                // Replace underscores with spaces and collapse multiple spaces
+                String clean = base.replace('_', ' ').replaceAll("\\s+", " ").trim();
+                if (!clean.isBlank()) return clean;
+            }
+        }
+
+        return "Unknown Track";
+    }
+
+    private static String sanitizeArtist(String artist) {
+        if (artist == null || artist.isBlank() || isUuidOrInternalId(artist)) {
+            return "Unknown Artist";
+        }
+        return artist.trim();
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -82,6 +151,6 @@ public class Song {
 
     @Override
     public String toString() {
-        return String.format("Song{id='%s', title='%s', artist='%s'}", id, title, artist);
+        return String.format("Song{id='%s', title='%s', artist='%s'}", id, getTitle(), getArtist());
     }
 }

@@ -4,6 +4,7 @@ import com.sattune.audio.AudioEngine;
 import com.sattune.audio.PlayerController;
 import com.sattune.model.Song;
 import com.sattune.service.LibraryService;
+import com.sattune.ui.content.PlaylistUtils;
 import com.sattune.util.ArtworkCache;
 import com.sattune.util.Theme;
 import com.sattune.util.UiUtils;
@@ -28,6 +29,8 @@ public class PlaybackBar extends JPanel {
     private final JLabel titleLabel;
     private final JLabel artistLabel;
     private final JButton  favBtn;
+    private final JButton  addToPlaylistBtn;
+    private final JButton  shufflePlayPill; // "🔀 Play Random" pill button when no song is playing
 
     // Center controls
     private final JButton shuffleBtn;
@@ -44,9 +47,6 @@ public class PlaybackBar extends JPanel {
     private final JLabel  volIcon;
 
     private boolean seekingProgress = false;
-    private final ExecutorService artworkWorker = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "sattune-artwork-bar"); t.setDaemon(true); return t;
-    });
 
     public PlaybackBar(PlayerController player, LibraryService library) {
         this.player  = player;
@@ -57,8 +57,40 @@ public class PlaybackBar extends JPanel {
         setPreferredSize(new Dimension(0, Theme.PLAYBAR_HEIGHT));
         setLayout(new BorderLayout(0, 0));
 
+        artworkLabel.setIcon(ArtworkCache.defaultIcon(Theme.ARTWORK_SIZE_MD));
+
         titleLabel  = UiUtils.label("No song playing", Theme.TEXT_PRIMARY, Theme.FONT_LABEL);
-        artistLabel = UiUtils.label("",                Theme.TEXT_SECONDARY, Theme.FONT_SMALL);
+        artistLabel = UiUtils.label("Click Play or Shuffle Random", Theme.TEXT_MUTED, Theme.FONT_SMALL);
+
+        shufflePlayPill = new JButton("🔀 Shuffle Library") {
+            private boolean hov = false;
+            {
+                addMouseListener(new MouseAdapter() {
+                    @Override public void mouseEntered(MouseEvent e) { hov = true; repaint(); }
+                    @Override public void mouseExited (MouseEvent e) { hov = false; repaint(); }
+                });
+            }
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(hov ? Theme.ACCENT : Theme.BG_SECONDARY);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), Theme.ARC_LG, Theme.ARC_LG);
+                g2.setColor(hov ? Theme.BG_MAIN : Theme.ACCENT);
+                g2.setFont(getFont());
+                FontMetrics fm = g2.getFontMetrics();
+                int x = (getWidth() - fm.stringWidth(getText())) / 2;
+                int y = (getHeight() + fm.getAscent() - fm.getDescent()) / 2;
+                g2.drawString(getText(), x, y);
+                g2.dispose();
+            }
+        };
+        shufflePlayPill.setFont(Theme.FONT_SMALL);
+        shufflePlayPill.setPreferredSize(new Dimension(136, 26));
+        shufflePlayPill.setBorderPainted(false);
+        shufflePlayPill.setContentAreaFilled(false);
+        shufflePlayPill.setFocusPainted(false);
+        shufflePlayPill.setOpaque(false);
+        shufflePlayPill.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 
         shuffleBtn   = makeCtrlBtn("⇄", Theme.TEXT_SECONDARY, Theme.TEXT_PRIMARY,  18);
         prevBtn      = makeCtrlBtn("⏮",  Theme.TEXT_SECONDARY, Theme.TEXT_PRIMARY,  22);
@@ -66,6 +98,8 @@ public class PlaybackBar extends JPanel {
         nextBtn      = makeCtrlBtn("⏭",  Theme.TEXT_SECONDARY, Theme.TEXT_PRIMARY,  22);
         repeatBtn    = makeCtrlBtn("⟳",  Theme.TEXT_SECONDARY, Theme.TEXT_PRIMARY,  18);
         favBtn       = makeCtrlBtn("♡",  Theme.TEXT_SECONDARY, Theme.DANGER,        16);
+        addToPlaylistBtn = makeCtrlBtn("▤", Theme.TEXT_SECONDARY, Theme.ACCENT, 16);
+        addToPlaylistBtn.setToolTipText("Add to Playlist");
 
         timeLabel     = UiUtils.label("0:00",  Theme.TEXT_MUTED, Theme.FONT_SMALL);
         durationLabel = UiUtils.label("0:00",  Theme.TEXT_MUTED, Theme.FONT_SMALL);
@@ -99,12 +133,17 @@ public class PlaybackBar extends JPanel {
         info.add(artistLabel);
         info.add(Box.createVerticalGlue());
 
-        JPanel leftFlow = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
+        JPanel leftFlow = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 0));
         leftFlow.setBackground(Theme.BAR_BG);
-        leftFlow.setPreferredSize(new Dimension(260, Theme.PLAYBAR_HEIGHT));
+        leftFlow.setPreferredSize(new Dimension(300, Theme.PLAYBAR_HEIGHT));
         leftFlow.add(artworkLabel);
         leftFlow.add(info);
         leftFlow.add(favBtn);
+        leftFlow.add(addToPlaylistBtn);
+        leftFlow.add(shufflePlayPill);
+        favBtn.setVisible(false); // Only visible when a song is playing
+        addToPlaylistBtn.setVisible(false);
+        shufflePlayPill.setVisible(true); // Shown when no song is playing
         add(leftFlow, BorderLayout.WEST);
 
         // Center: controls + progress
@@ -149,6 +188,7 @@ public class PlaybackBar extends JPanel {
 
     private void wireEvents() {
         playPauseBtn.addActionListener(e -> player.togglePlayPause());
+        shufflePlayPill.addActionListener(e -> player.playRandom());
         prevBtn.addActionListener(e -> player.previous());
         nextBtn.addActionListener(e -> player.next());
 
@@ -171,6 +211,13 @@ public class PlaybackBar extends JPanel {
                 library.toggleFavourite(s.getId());
                 favBtn.setText(s.isFavourite() ? "♥" : "♡");
                 favBtn.setForeground(s.isFavourite() ? Theme.DANGER : Theme.TEXT_SECONDARY);
+            }
+        });
+
+        addToPlaylistBtn.addActionListener(e -> {
+            Song s = player.getCurrentSong();
+            if (s != null) {
+                PlaylistUtils.showAddToPlaylistDialog(this, library, s, null);
             }
         });
 
@@ -212,16 +259,41 @@ public class PlaybackBar extends JPanel {
     // ── Update methods ────────────────────────────────────────────────────────
 
     private void updateSongInfo(Song song) {
-        titleLabel.setText(song.getTitle());
-        artistLabel.setText(song.getArtist());
-        favBtn.setText(song.isFavourite() ? "♥" : "♡");
-        favBtn.setForeground(song.isFavourite() ? Theme.DANGER : Theme.TEXT_SECONDARY);
+        if (song != null) {
+            String t = song.getTitle();
+            String a = song.getArtist();
+            titleLabel.setText(truncate(t, 26));
+            titleLabel.setToolTipText(t);
+            artistLabel.setText(truncate(a, 30));
+            artistLabel.setToolTipText(a);
+            favBtn.setText(song.isFavourite() ? "♥" : "♡");
+            favBtn.setForeground(song.isFavourite() ? Theme.DANGER : Theme.TEXT_SECONDARY);
+            favBtn.setVisible(true);
+            addToPlaylistBtn.setVisible(true);
+            shufflePlayPill.setVisible(false);
 
-        // Load artwork off EDT
-        artworkWorker.submit(() -> {
-            ImageIcon icon = ArtworkCache.getInstance().get(song.getFilePath(), Theme.ARTWORK_SIZE_MD);
-            SwingUtilities.invokeLater(() -> artworkLabel.setIcon(icon));
-        });
+            // Load artwork asynchronously
+            ImageIcon cached = ArtworkCache.getInstance().getCached(song.getFilePath(), Theme.ARTWORK_SIZE_MD);
+            if (cached != null) {
+                artworkLabel.setIcon(cached);
+            } else {
+                artworkLabel.setIcon(ArtworkCache.defaultIcon(Theme.ARTWORK_SIZE_MD));
+                ArtworkCache.getInstance().loadAsync(song.getFilePath(), Theme.ARTWORK_SIZE_MD, icon -> {
+                    if (player.getCurrentSong() != null && player.getCurrentSong().getId().equals(song.getId())) {
+                        artworkLabel.setIcon(icon);
+                    }
+                });
+            }
+        } else {
+            titleLabel.setText("No song playing");
+            titleLabel.setToolTipText(null);
+            artistLabel.setText("Click Play or Shuffle Random");
+            artistLabel.setToolTipText(null);
+            favBtn.setVisible(false);
+            addToPlaylistBtn.setVisible(false);
+            shufflePlayPill.setVisible(true);
+            artworkLabel.setIcon(ArtworkCache.defaultIcon(Theme.ARTWORK_SIZE_MD));
+        }
     }
 
     private void updatePlayPauseBtn(AudioEngine.State state) {
@@ -230,11 +302,19 @@ public class PlaybackBar extends JPanel {
 
     private void updateProgress(long posMs, long durMs) {
         if (durMs > 0) {
+            posMs = Math.min(posMs, durMs); // Clamp: elapsed never exceeds track duration
             int val = (int)((posMs / (double) durMs) * 1000);
             progressSlider.setValue(Math.min(1000, val));
+        } else {
+            progressSlider.setValue(0);
         }
         timeLabel.setText(fmt(posMs));
         durationLabel.setText(fmt(durMs));
+    }
+
+    private static String truncate(String s, int max) {
+        if (s == null) return "";
+        return s.length() > max ? s.substring(0, max - 1) + "…" : s;
     }
 
     private static String fmt(long ms) {

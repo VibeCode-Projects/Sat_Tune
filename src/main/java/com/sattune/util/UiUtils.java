@@ -95,6 +95,43 @@ public final class UiUtils {
         return b;
     }
 
+    /**
+     * Accent-styled button with lavender background and dark text.
+     */
+    public static JButton accentButton(String text) {
+        JButton b = new JButton(text) {
+            private boolean hov = false;
+            {
+                addMouseListener(new MouseAdapter() {
+                    @Override public void mouseEntered(MouseEvent e) { hov = true;  repaint(); }
+                    @Override public void mouseExited (MouseEvent e) { hov = false; repaint(); }
+                });
+                setBorder(BorderFactory.createEmptyBorder(6, 14, 6, 14));
+            }
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(hov ? Theme.ACCENT_DIM : Theme.ACCENT);
+                g2.fill(new RoundRectangle2D.Float(0, 0, getWidth(), getHeight(), Theme.ARC, Theme.ARC));
+                g2.setColor(Theme.BG_MAIN);
+                g2.setFont(getFont());
+                FontMetrics fm = g2.getFontMetrics();
+                int x = (getWidth()  - fm.stringWidth(getText())) / 2;
+                int y = (getHeight() + fm.getAscent() - fm.getDescent()) / 2;
+                g2.drawString(getText(), x, y);
+                g2.dispose();
+            }
+        };
+        b.setBorderPainted(false);
+        b.setContentAreaFilled(false);
+        b.setFocusPainted(false);
+        b.setOpaque(false);
+        b.setForeground(Theme.BG_MAIN);
+        b.setFont(Theme.FONT_LABEL.deriveFont(Font.BOLD));
+        b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        return b;
+    }
+
     // ── Separators ────────────────────────────────────────────────────────────
 
     public static JSeparator separator() {
@@ -122,23 +159,23 @@ public final class UiUtils {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 int h    = getHeight();
                 int tw   = getWidth();
-                int trackH = 3;
+                int trackH = 4;
                 int ty   = (h - trackH) / 2;
                 float ratio = (getValue() - getMinimum()) / (float)(getMaximum() - getMinimum());
                 int filled = (int)(tw * ratio);
 
                 // Track background
                 g2.setColor(Theme.BORDER);
-                g2.fillRoundRect(0, ty, tw, trackH, 3, 3);
+                g2.fillRoundRect(0, ty, tw, trackH, 4, 4);
 
                 // Filled portion
                 if (filled > 0) {
                     g2.setColor(Theme.ACCENT);
-                    g2.fillRoundRect(0, ty, filled, trackH, 3, 3);
+                    g2.fillRoundRect(0, ty, filled, trackH, 4, 4);
                 }
 
-                // Thumb — small circle
-                int thumbR = 6;
+                // Thumb — smooth circle
+                int thumbR = 7;
                 int tx = filled - thumbR;
                 tx = Math.max(0, Math.min(tw - thumbR * 2, tx));
                 g2.setColor(Theme.TEXT_PRIMARY);
@@ -160,13 +197,13 @@ public final class UiUtils {
     public static JLabel artworkLabel(int size) {
         JLabel l = new JLabel() {
             @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 if (getIcon() == null) {
-                    Graphics2D g2 = (Graphics2D) g.create();
-                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                     g2.setColor(Theme.BG_SECONDARY);
                     g2.fillRoundRect(0, 0, getWidth(), getHeight(), Theme.ARC, Theme.ARC);
-                    g2.dispose();
                 }
+                g2.dispose();
                 super.paintComponent(g);
             }
         };

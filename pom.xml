@@ -49,6 +49,23 @@
             <artifactId>jaad</artifactId>
             <version>0.9.4</version>
         </dependency>
+        <!-- OGG Vorbis Decoding via Java Sound SPI -->
+        <dependency>
+            <groupId>com.googlecode.soundlibs</groupId>
+            <artifactId>vorbisspi</artifactId>
+            <version>1.0.3.3</version>
+        </dependency>
+        <dependency>
+            <groupId>com.googlecode.soundlibs</groupId>
+            <artifactId>jorbis</artifactId>
+            <version>0.0.17.4</version>
+        </dependency>
+        <!-- FLAC Decoding via Java Sound SPI -->
+        <dependency>
+            <groupId>org.jflac</groupId>
+            <artifactId>jflac-codec</artifactId>
+            <version>1.5.2</version>
+        </dependency>
 
         <!-- MP3 metadata reading (JAudioTagger) -->
         <dependency>

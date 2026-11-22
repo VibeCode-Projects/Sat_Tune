@@ -30,10 +30,6 @@ public class LibraryView extends JPanel {
     private final JTable           table;
     private final JTextField       searchField;
 
-    private final ExecutorService artWorker = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "sattune-lib-art"); t.setDaemon(true); return t;
-    });
-
     public LibraryView(LibraryService library, PlayerController player) {
         this.library = library;
         this.player  = player;
@@ -153,19 +149,7 @@ public class LibraryView extends JPanel {
     }
 
     private void showAddToPlaylistDialog(Song song) {
-        var playlists = library.getPlaylists();
-        if (playlists.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "No playlists yet. Create one first.", "Add to Playlist", JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
-        String[] names = playlists.stream().map(p -> p.getName()).toArray(String[]::new);
-        String chosen = (String) JOptionPane.showInputDialog(this,
-                "Choose a playlist:", "Add to Playlist",
-                JOptionPane.PLAIN_MESSAGE, null, names, names[0]);
-        if (chosen != null) {
-            playlists.stream().filter(p -> p.getName().equals(chosen)).findFirst()
-                     .ifPresent(p -> library.addSongToPlaylist(p.getId(), song.getId()));
-        }
+        PlaylistUtils.showAddToPlaylistDialog(this, library, song, null);
     }
 
     // ── Table styling ─────────────────────────────────────────────────────────
@@ -176,7 +160,7 @@ public class LibraryView extends JPanel {
         table.setGridColor(Theme.BORDER);
         table.setShowHorizontalLines(true);
         table.setShowVerticalLines(false);
-        table.setRowHeight(44);
+        table.setRowHeight(52);
         table.setFont(Theme.FONT_LABEL);
         table.setSelectionBackground(Theme.BG_SELECTED);
         table.setSelectionForeground(Theme.TEXT_PRIMARY);
@@ -187,18 +171,23 @@ public class LibraryView extends JPanel {
         header.setBackground(Theme.BG_SECONDARY);
         header.setForeground(Theme.TEXT_SECONDARY);
         header.setFont(Theme.FONT_SMALL);
+        header.setPreferredSize(new Dimension(0, 36));
         header.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, Theme.BORDER));
 
         // Column widths
         TableColumnModel cm = table.getColumnModel();
-        cm.getColumn(0).setPreferredWidth(44);  cm.getColumn(0).setMaxWidth(44);   // art
-        cm.getColumn(1).setPreferredWidth(220); // title
-        cm.getColumn(2).setPreferredWidth(150); // artist
-        cm.getColumn(3).setPreferredWidth(150); // album
-        cm.getColumn(4).setPreferredWidth(60);  cm.getColumn(4).setMaxWidth(70);   // dur
+        cm.getColumn(0).setPreferredWidth(52);  cm.getColumn(0).setMaxWidth(56);   // art
+        cm.getColumn(1).setPreferredWidth(260); // title
+        cm.getColumn(2).setPreferredWidth(180); // artist
+        cm.getColumn(3).setPreferredWidth(180); // album
+        cm.getColumn(4).setPreferredWidth(70);  cm.getColumn(4).setMaxWidth(80);   // dur
 
-        // Artwork renderer
+        // Column renderers
         cm.getColumn(0).setCellRenderer(new ArtworkCellRenderer());
+        cm.getColumn(1).setCellRenderer(new TextCellRenderer(JLabel.LEFT, Theme.TEXT_PRIMARY));
+        cm.getColumn(2).setCellRenderer(new TextCellRenderer(JLabel.LEFT, Theme.TEXT_SECONDARY));
+        cm.getColumn(3).setCellRenderer(new TextCellRenderer(JLabel.LEFT, Theme.TEXT_MUTED));
+        cm.getColumn(4).setCellRenderer(new TextCellRenderer(JLabel.RIGHT, Theme.TEXT_MUTED));
 
         // Sort
         TableRowSorter<SongTableModel> sorter = new TableRowSorter<>(tableModel);
@@ -232,7 +221,31 @@ public class LibraryView extends JPanel {
         }
     }
 
-    // ── Artwork cell renderer ─────────────────────────────────────────────────
+    // ── Renderers ────────────────────────────────────────────────────────────
+
+    static class TextCellRenderer extends DefaultTableCellRenderer {
+        private final int alignment;
+        private final Color fgColor;
+
+        TextCellRenderer(int alignment, Color fgColor) {
+            this.alignment = alignment;
+            this.fgColor = fgColor;
+        }
+
+        @Override
+        public Component getTableCellRendererComponent(
+                JTable table, Object value, boolean selected, boolean focused, int row, int col) {
+            JLabel label = (JLabel) super.getTableCellRendererComponent(table, value, selected, focused, row, col);
+            label.setBackground(selected ? Theme.BG_SELECTED : Theme.BG_MAIN);
+            label.setForeground(selected ? Theme.TEXT_PRIMARY : fgColor);
+            label.setHorizontalAlignment(alignment);
+            label.setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 10));
+            String str = value != null ? value.toString() : "";
+            label.setText(str);
+            label.setToolTipText(str.isBlank() ? null : str);
+            return label;
+        }
+    }
 
     class ArtworkCellRenderer extends DefaultTableCellRenderer {
         @Override public Component getTableCellRendererComponent(
@@ -242,21 +255,18 @@ public class LibraryView extends JPanel {
             label.setHorizontalAlignment(JLabel.CENTER);
 
             String path = (String) value;
-            if (path == null) return label;
+            if (path == null) {
+                label.setIcon(ArtworkCache.defaultIcon(36));
+                return label;
+            }
 
-            // Check cache without blocking EDT
-            ImageIcon cached = null;
-            synchronized (ArtworkCache.getInstance()) {}
-            cached = ArtworkCache.getInstance().get(path, 36);
+            ImageIcon cached = ArtworkCache.getInstance().getCached(path, 36);
             if (cached != null) {
                 label.setIcon(cached);
             } else {
                 label.setIcon(ArtworkCache.defaultIcon(36));
-                artWorker.submit(() -> {
-                    ImageIcon icon = ArtworkCache.getInstance().get(path, 36);
-                    SwingUtilities.invokeLater(() -> {
-                        tableModel.fireTableCellUpdated(row, col);
-                    });
+                ArtworkCache.getInstance().loadAsync(path, 36, icon -> {
+                    table.repaint();
                 });
             }
             return label;

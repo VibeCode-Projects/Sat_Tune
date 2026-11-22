@@ -87,8 +87,25 @@ public class PlayerController {
         switch (engine.getState()) {
             case PLAYING -> engine.pause();
             case PAUSED  -> engine.resume();
-            case STOPPED -> { if (currentSong != null) engine.play(currentSong); }
+            case STOPPED -> {
+                if (currentSong != null) {
+                    engine.play(currentSong);
+                } else {
+                    playRandom();
+                }
+            }
         }
+    }
+
+    /**
+     * Plays a random song from the entire library or shuffle playlist.
+     */
+    public void playRandom() {
+        List<Song> all = library.getAllSongs();
+        if (all.isEmpty()) return;
+        setShuffleOn(true);
+        int randomIndex = new Random().nextInt(all.size());
+        playSongFromList(all, randomIndex);
     }
 
     public void next() {

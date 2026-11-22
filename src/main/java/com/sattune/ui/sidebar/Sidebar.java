@@ -104,21 +104,34 @@ public class Sidebar extends JPanel {
     }
 
     private JComponent bottomButton(String text, Runnable action) {
-        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 16, 10));
-        row.setBackground(Theme.BG_SIDEBAR);
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 16, 10)) {
+            private boolean hov = false;
+            {
+                addMouseListener(new MouseAdapter() {
+                    @Override public void mouseEntered(MouseEvent e) { hov = true; repaint(); }
+                    @Override public void mouseExited(MouseEvent e)  { hov = false; repaint(); }
+                });
+            }
+            @Override protected void paintComponent(Graphics g) {
+                if (hov) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setColor(Theme.BG_HOVER);
+                    g2.fillRoundRect(8, 2, getWidth() - 16, getHeight() - 4, Theme.ARC, Theme.ARC);
+                    g2.dispose();
+                }
+                super.paintComponent(g);
+            }
+        };
+        row.setOpaque(false);
         row.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 
         JLabel lbl = UiUtils.label(text, Theme.TEXT_SECONDARY, Theme.FONT_SMALL);
         row.add(lbl);
 
-        Color[] hover = {Theme.BG_SIDEBAR};
         row.addMouseListener(new MouseAdapter() {
-            @Override public void mouseEntered(MouseEvent e) {
-                hover[0] = Theme.BG_HOVER; row.setBackground(Theme.BG_HOVER); lbl.setForeground(Theme.TEXT_PRIMARY);
-            }
-            @Override public void mouseExited(MouseEvent e) {
-                hover[0] = Theme.BG_SIDEBAR; row.setBackground(Theme.BG_SIDEBAR); lbl.setForeground(Theme.TEXT_SECONDARY);
-            }
+            @Override public void mouseEntered(MouseEvent e) { lbl.setForeground(Theme.TEXT_PRIMARY); }
+            @Override public void mouseExited(MouseEvent e)  { lbl.setForeground(Theme.TEXT_SECONDARY); }
             @Override public void mouseClicked(MouseEvent e) { action.run(); }
         });
         return row;
@@ -128,22 +141,25 @@ public class Sidebar extends JPanel {
 
     static class NavItem extends JPanel {
         final String viewId;
+        private final JLabel ico;
+        private final JLabel lbl;
         private boolean isActive = false;
         private boolean hovered  = false;
 
         NavItem(String viewId, String icon, String title) {
             this.viewId = viewId;
-            setLayout(new FlowLayout(FlowLayout.LEFT, 12, 9));
+            setLayout(new FlowLayout(FlowLayout.LEFT, 14, 10));
             setOpaque(false);
-            setMaximumSize(new Dimension(Integer.MAX_VALUE, 42));
+            setBorder(BorderFactory.createEmptyBorder(2, 8, 2, 8));
+            setMaximumSize(new Dimension(Integer.MAX_VALUE, 46));
             setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 
-            JLabel ico = new JLabel(icon);
-            ico.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 13));
+            ico = new JLabel(icon);
+            ico.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 15));
             ico.setForeground(Theme.TEXT_SECONDARY);
-            ico.setPreferredSize(new Dimension(18, 18));
+            ico.setPreferredSize(new Dimension(20, 20));
 
-            JLabel lbl = UiUtils.label(title, Theme.TEXT_SECONDARY, Theme.FONT_LABEL);
+            lbl = UiUtils.label(title, Theme.TEXT_SECONDARY, Theme.FONT_LABEL);
             add(ico); add(lbl);
 
             addMouseListener(new MouseAdapter() {
@@ -156,25 +172,30 @@ public class Sidebar extends JPanel {
 
         @Override protected void paintComponent(Graphics g) {
             Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            int arc = Theme.ARC;
+            int margin = 6;
             if (isActive) {
                 g2.setColor(Theme.BG_SELECTED);
-                g2.fillRect(0, 0, getWidth(), getHeight());
-                // Accent left bar
+                g2.fillRoundRect(margin, 2, getWidth() - margin * 2, getHeight() - 4, arc, arc);
+                // Subtle accent curved indicator pill
                 g2.setColor(Theme.ACCENT);
-                g2.fillRect(0, 0, 3, getHeight());
+                g2.fillRoundRect(margin + 2, 8, 4, getHeight() - 16, 2, 2);
             } else if (hovered) {
                 g2.setColor(Theme.BG_HOVER);
-                g2.fillRect(0, 0, getWidth(), getHeight());
+                g2.fillRoundRect(margin, 2, getWidth() - margin * 2, getHeight() - 4, arc, arc);
             }
             g2.dispose();
 
             // Update child label colors
-            Component[] children = getComponents();
-            for (Component c : children) {
-                if (c instanceof JLabel lbl) {
-                    lbl.setForeground(isActive ? Theme.TEXT_PRIMARY : Theme.TEXT_SECONDARY);
-                }
+            ico.setForeground(isActive ? Theme.ACCENT : (hovered ? Theme.TEXT_PRIMARY : Theme.TEXT_SECONDARY));
+            lbl.setForeground(isActive ? Theme.TEXT_PRIMARY : (hovered ? Theme.TEXT_PRIMARY : Theme.TEXT_SECONDARY));
+            if (isActive) {
+                lbl.setFont(Theme.FONT_LABEL.deriveFont(Font.BOLD));
+            } else {
+                lbl.setFont(Theme.FONT_LABEL);
             }
+
             super.paintComponent(g);
         }
     }

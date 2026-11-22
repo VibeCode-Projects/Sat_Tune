@@ -2,168 +2,223 @@
 
 > *Just you and your music.*
 
-Sattune is a lightweight, elegant desktop music player built entirely with native Java Swing. It has no cloud dependencies, no telemetry, and no bloat — just clean local music playback.
+**Sattune** is a lightweight, elegant desktop music player built with native Java Swing and FlatLaf. Designed with a minimalist macOS & studio software aesthetic, it prioritizes reliable local playback, near-zero RAM & CPU footprint, and an intentional, distraction-free interface.
+
+No accounts. No trackers. No cloud requirements. 100% offline.
 
 ---
 
-## Screenshots
+## 📸 Interface & Design Philosophy
 
-The interface uses an almost-black dark palette (`#090909`) with subtle purple accents (`#A78BFA`).
+The interface uses an almost-black palette (`#090909`) with delicate borders, subtle curves, and restrained lavender/purple accents (`#A78BFA`).
 
-| View | Description |
-|------|-------------|
-| Home | Recently played · Recently added · Favourites |
-| Library | Searchable, sortable song table |
-| Playlists | Create / rename / delete playlists, drag songs |
-| Settings | App info, library stats |
+- **Color Tokens**:
+  - Main Background: `#090909`
+  - Sidebar: `#0D0D0D`
+  - Cards & Toolbar: `#141414`
+  - Hover States: `#1B1B1B`
+  - Selected Rows: `#202020`
+  - Borders & Hairlines: `#252525`
+  - Primary Typography: `#F5F5F5`
+  - Secondary Typography: `#888888`
+  - Accent Color: `#A78BFA`
+- **Curves & Hierarchy**: Scaled layouts (1180×750px standard), 12px curved cards, smooth pill badges, and compact monochrome icons.
 
----
-
-## Features
-
-- 🎵 **Play MP3, FLAC, WAV, OGG, AAC, M4A** files locally
-- 📂 **Import files or entire folders**
-- 🔀 **Shuffle & Repeat** (off / one / all)
-- ♥  **Favourites** — mark and browse favourite tracks
-- 🕐 **Recently Played** history (up to 50 tracks)
-- 📋 **Playlists** — create, rename, delete, add/remove songs
-- 🔍 **Search** library by title, artist, or album
-- 💾 **Persistent library** — data saved between sessions as JSON
-- ⚡ **Low RAM & CPU** — lazy artwork loading, capped LRU image cache
-
----
-
-## Requirements
-
-- **Java 17+** (OpenJDK or Oracle JDK)
-- Linux, macOS, or Windows
+| View | Purpose |
+| :--- | :--- |
+| **Home** | Recently Played, Recently Added, and Favourites with artwork cards. |
+| **Your Library** | Searchable (live filter), sortable list with titles, artists, albums, durations, and artwork thumbnails. |
+| **Playlists** | Create, rename, delete custom playlists and curate your tracks. |
+| **Recently Played** | History of up to 50 recently played tracks. |
+| **Favourites** | Quick access to tracks bookmarked with the `♥` toggle. |
+| **Settings** | App details, audio engine stats, and library overview. |
 
 ---
 
-## Running
+## ✨ Features
 
+- 🎧 **Multi-Format Playback**: Plays **MP3, M4A, AAC, FLAC, WAV, and OGG** natively.
+- ⚡ **Resilient Audio Engine**:
+  - Pure Java Sound SPI with `mp3spi` and `jaad` (AAC/M4A).
+  - Handles mismatched container extensions (e.g. MP3 audio inside `.m4a` files).
+  - Automatically converts big-endian streams to hardware-native little-endian 16-bit PCM.
+  - Smart Linux mixer selector that binds to active PipeWire/PulseAudio sinks instead of dead HDMI endpoints.
+- 🚀 **Auto-Discovery on Launch**: Automatically scans `~/Music`, `~/music`, and `~/Downloads` on first launch so your songs appear immediately.
+- 🔀 **Smart Shuffling & Random Play**:
+  - Dedicated **"🔀 Shuffle Library"** bottom pill button when no song is active.
+  - Center controls: Shuffle, Previous, Play/Pause, Next, and Repeat (off / one / all).
+- 🖼 **Low-Memory Lazy Artwork**: Embedded album art is extracted on background daemon threads and cached in an LRU cache capped at 64 items (< 1 MB RAM).
+- 🔍 **Live Search**: Instant filtering by song title, artist, or album name.
+- 💾 **Local Persistence**: User preferences, playlists, favourites, and track lists are saved to a clean JSON document upon close.
+
+---
+
+## 🛠 Tech Stack
+
+| Layer | Component | Details |
+| :--- | :--- | :--- |
+| **GUI** | Java Swing + FlatLaf 3.4.1 | Custom 2D painters, modern dark theme, curved pill components |
+| **Audio Core** | Java Sound API (`javax.sound.sampled`) | Threaded PCM decode, master gain control in dB, seek support |
+| **Decoders** | JLayer 1.0.1 + MP3SPI 1.9.5.4 + JAAD 0.9.4 | MP3 and AAC/M4A stream decoding without external binaries |
+| **Metadata** | JAudioTagger 3.0.1 | Non-blocking ID3 / MP4 tag and artwork extraction |
+| **Data Storage** | Google Gson 2.10.1 | Fast local JSON serialization |
+| **Build & CI** | Maven 3.9+ & GitHub Actions | Automated multi-platform native builds for Windows, macOS, and Linux |
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+- **Java 17 or newer** (OpenJDK / Eclipse Temurin recommended).
+
+### Run from Source
 ```bash
-# Build
-mvn clean package -q
+# Clone the repository
+git clone https://github.com/your-username/SatTune.git
+cd SatTune
 
-# Run
+# Compile & package shaded uber-jar
+mvn clean package -DskipTests
+
+# Run the player
 java -jar target/sattune-1.0.0.jar
 ```
 
-Or use the provided launch script:
-
+Or execute the included shell launcher:
 ```bash
+chmod +x run.sh
 ./run.sh
 ```
 
 ---
 
-## Project Structure
+## 📦 Cross-Platform Installers & CI/CD
 
-```
-src/main/java/com/sattune/
-├── SatTune.java               # Entry point
-├── audio/
-│   ├── AudioEngine.java       # Low-level PCM decode + SourceDataLine playback
-│   └── PlayerController.java  # Queue, shuffle, repeat, events
-├── model/
-│   ├── Song.java
-│   ├── Playlist.java
-│   └── AppData.java           # Root persistence model
-├── service/
-│   ├── LibraryService.java    # In-memory library + listeners
-│   ├── MetadataService.java   # JAudioTagger-based file scanner
-│   └── PersistenceService.java# Gson JSON load/save
-├── ui/
-│   ├── MainWindow.java        # Root JFrame + navigation wiring
-│   ├── sidebar/Sidebar.java
-│   ├── player/PlaybackBar.java
-│   └── content/
-│       ├── HomeView.java
-│       ├── LibraryView.java
-│       ├── PlaylistsView.java
-│       ├── RecentView.java
-│       ├── FavouritesView.java
-│       └── SettingsView.java
-└── util/
-    ├── Theme.java             # Design tokens (colors, fonts, dimensions)
-    ├── UiUtils.java           # Component factory helpers
-    └── ArtworkCache.java      # LRU-cached embedded artwork loader
-```
+Sattune includes a multi-platform CI/CD workflow (`.github/workflows/build-and-release.yml`) that builds native bundles with bundled runtimes (no Java pre-installed required for users).
 
----
+### Downloads Generated by GitHub Actions:
 
-## Data Storage
+| Platform | Output Artifact | Notes |
+| :--- | :--- | :--- |
+| **Windows** | `Sattune-1.0.0.exe` & `Sattune-1.0.0-windows-x64.zip` | Bundled standalone runtime + `.ico` icon |
+| **macOS (Apple)** | `Sattune-1.0.0.dmg` & `Sattune-1.0.0-macos.tar.gz` | Signed disk image, retina `.icns` bundle |
+| **Linux** | `sattune_1.0.0_amd64.deb` & `Sattune-1.0.0-linux-x64.tar.gz` | Desktop shortcut and audio category entry |
 
-User data is stored as a single `library.json` file:
+### Building Native Installers Locally (`jpackage`)
 
-| OS | Location |
-|----|----------|
-| Linux | `~/.local/share/SatTune/library.json` |
-| macOS | `~/Library/Application Support/SatTune/library.json` |
-| Windows | `%APPDATA%\SatTune\library.json` |
-
-Music files are **not** copied — only their paths are recorded.
-
----
-
-## Packaging (jpackage)
-
-Requires the full JDK (not just JRE).
-
-### Linux (DEB)
+#### Linux (Debian / Ubuntu `.deb`):
 ```bash
 jpackage \
   --type deb \
   --name sattune \
   --app-version 1.0.0 \
+  --vendor "Sattune" \
+  --description "Minimal Offline Desktop Music Player" \
   --input target \
   --main-jar sattune-1.0.0.jar \
   --main-class com.sattune.SatTune \
-  --dest dist/linux
+  --icon sattune.png \
+  --dest dist \
+  --linux-shortcut \
+  --linux-menu-group "Audio" \
+  --linux-app-category "Audio" \
+  --java-options "-Xmx128m" \
+  --java-options "-Xms32m"
 ```
 
-### Windows (EXE installer)
+#### Windows (`.exe` Installer):
+*Run on a Windows machine with JDK 17+ and WiX toolset:*
+```bash
+jpackage ^
+  --type exe ^
+  --name Sattune ^
+  --app-version 1.0.0 ^
+  --vendor "Sattune" ^
+  --input target ^
+  --main-jar sattune-1.0.0.jar ^
+  --main-class com.sattune.SatTune ^
+  --icon sattune.ico ^
+  --dest dist ^
+  --win-menu ^
+  --win-shortcut ^
+  --win-dir-chooser
+```
+
+#### macOS (`.dmg`):
+*Run on a macOS machine:*
 ```bash
 jpackage \
-  --type exe \
+  --type dmg \
   --name Sattune \
   --app-version 1.0.0 \
+  --vendor "Sattune" \
   --input target \
   --main-jar sattune-1.0.0.jar \
   --main-class com.sattune.SatTune \
-  --win-menu \
-  --win-shortcut \
-  --dest dist/windows
+  --icon sattune.icns \
+  --dest dist
 ```
 
-> **Note:** `jpackage` bundles a JRE so users do not need Java installed. Run from the same OS/architecture you are targeting.
+---
+
+## 📁 Data Storage
+
+User library index, settings, playlists, and playback states are stored in standard OS application directories:
+
+- **Linux**: `~/.local/share/SatTune/library.json`
+- **macOS**: `~/Library/Application Support/SatTune/library.json`
+- **Windows**: `%APPDATA%\SatTune\library.json`
+
+> **Note**: Sattune never copies or modifies your local audio files. It only references file paths.
 
 ---
 
-## Technology Stack
+## 🏗 Project Layout
 
-| Component | Library |
-|-----------|---------|
-| GUI | Java Swing |
-| Theme | FlatLaf 3.4.1 |
-| Audio decoding | Java Sound API (SPI) + JLayer |
-| Metadata | JAudioTagger 3.0.1 |
-| Persistence | Gson 2.10.1 |
-| Build | Maven 3.9+ |
+```
+SatTune/
+├── .github/workflows/
+│   └── build-and-release.yml   # Multi-platform CI/CD (Windows, macOS, Linux)
+├── src/main/java/com/sattune/
+│   ├── SatTune.java            # Main entry point & FlatLaf UI setup
+│   ├── audio/
+│   │   ├── AudioEngine.java    # Safe AudioInputStream loader, PCM decoder, Mixer router
+│   │   └── PlayerController.java# Playback queue, shuffle, repeat, playback state
+│   ├── model/
+│   │   ├── Song.java           # Song metadata & state model
+│   │   ├── Playlist.java       # Playlist container model
+│   │   └── AppData.java        # JSON persistence data contract
+│   ├── service/
+│   │   ├── LibraryService.java # Observable in-memory song/playlist library
+│   │   ├── MetadataService.java# Multi-thread scanner & ID3 metadata reader
+│   │   └── PersistenceService.java # Async Gson file saver/loader
+│   ├── ui/
+│   │   ├── MainWindow.java     # Root JFrame & auto-scan on startup
+│   │   ├── sidebar/Sidebar.java# Navigation with curved pill indicators
+│   │   ├── player/PlaybackBar.java # Bottom bar, seek slider, random shuffle button
+│   │   └── content/
+│   │       ├── HomeView.java   # Album cards & quick categories
+│   │       ├── LibraryView.java# Scaled song table with live search
+│   │       ├── PlaylistsView.java # Playlist CRUD & song viewer
+│   │       ├── RecentView.java # History view
+│   │       ├── FavouritesView.java # Favourites view
+│   │       └── SettingsView.java   # App information
+│   └── util/
+│       ├── Theme.java          # Design tokens (colors, font hierarchy, arcs)
+│       ├── UiUtils.java        # Curved buttons, thin sliders, scrollpanes
+│       └── ArtworkCache.java   # LRU capped artwork cache
+├── sattune.png                 # Master 256x256 app logo
+├── sattune.ico                 # Multi-res Windows icon
+├── run.sh                      # Shell launch script
+├── pom.xml                     # Maven POM with shaded plugin & SPI audio dependencies
+└── .gitignore                  # Git exclusions for builds & dists
+```
 
 ---
 
-## Design Philosophy
+## 📄 License
 
-- Almost-black background (`#090909`)
-- Minimal typography — no oversized headings
-- Thin separators instead of heavy borders
-- Accent color (`#A78BFA`) only on small interactive details
-- Artwork loaded lazily — only the visible card/row
-- LRU image cache capped at 64 entries
-- Playback runs on a dedicated daemon thread, never blocking the EDT
+Open-source under the [MIT License](LICENSE).
+Feel free to use, modify, and distribute.
 
----
-
-*Sattune — Less UI. Less animation. Less RAM. More music.*
+*"Sattune — Just you and your music."*

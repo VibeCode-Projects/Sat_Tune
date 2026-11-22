@@ -4,6 +4,7 @@ import com.sattune.model.AppData;
 import com.sattune.model.Playlist;
 import com.sattune.model.Song;
 
+import java.io.File;
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
@@ -165,7 +166,21 @@ public class LibraryService {
 
     public void loadFromAppData(AppData data) {
         songs.clear();
-        songs.addAll(data.getLibrary());
+        for (Song s : data.getLibrary()) {
+            if (s.getDurationMs() <= 0 || Song.isUuidOrInternalId(s.getTitle())) {
+                File f = new File(s.getFilePath());
+                if (f.exists()) {
+                    Song refreshed = MetadataService.readMetadata(f);
+                    s.setTitle(refreshed.getTitle());
+                    s.setArtist(refreshed.getArtist());
+                    s.setAlbum(refreshed.getAlbum());
+                    if (refreshed.getDurationMs() > 0) {
+                        s.setDurationMs(refreshed.getDurationMs());
+                    }
+                }
+            }
+            songs.add(s);
+        }
         playlists.clear();
         playlists.addAll(data.getPlaylists());
         recent.clear();

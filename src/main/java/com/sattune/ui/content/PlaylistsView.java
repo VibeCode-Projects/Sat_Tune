@@ -4,6 +4,8 @@ import com.sattune.audio.PlayerController;
 import com.sattune.model.Playlist;
 import com.sattune.model.Song;
 import com.sattune.service.LibraryService;
+import com.sattune.ui.dialog.AddSongsDialog;
+import com.sattune.util.ArtworkCache;
 import com.sattune.util.Theme;
 import com.sattune.util.UiUtils;
 
@@ -14,6 +16,7 @@ import java.util.List;
 
 /**
  * Playlists view — sidebar list of playlists + song list in selected playlist.
+ * Supports adding songs from the library via modal dialog, right-click, and callouts.
  */
 public class PlaylistsView extends JPanel {
 
@@ -24,6 +27,8 @@ public class PlaylistsView extends JPanel {
     private final JList<Playlist>            playlistList;
     private final JPanel                     songListPanel;
     private final JLabel                     playlistTitle;
+    private final JButton                    addSongsBtn;
+    private final JButton                    playAllBtn;
 
     public PlaylistsView(LibraryService library, PlayerController player) {
         this.library = library;
@@ -87,10 +92,23 @@ public class PlaylistsView extends JPanel {
                 BorderFactory.createMatteBorder(0, 0, 1, 0, Theme.BORDER),
                 BorderFactory.createEmptyBorder(10, 16, 10, 16)));
         playlistTitle = UiUtils.label("Select a playlist", Theme.TEXT_SECONDARY, Theme.FONT_HEADING);
-        JButton playAllBtn = UiUtils.textButton("▶ Play All");
+
+        JPanel headerActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        headerActions.setBackground(Theme.BG_SECONDARY);
+
+        addSongsBtn = UiUtils.accentButton("＋ Add Songs");
+        addSongsBtn.setEnabled(false);
+        addSongsBtn.addActionListener(e -> openAddSongsDialog());
+
+        playAllBtn = UiUtils.textButton("▶ Play All");
+        playAllBtn.setEnabled(false);
         playAllBtn.addActionListener(e -> playAll());
+
+        headerActions.add(addSongsBtn);
+        headerActions.add(playAllBtn);
+
         rightHeader.add(playlistTitle, BorderLayout.WEST);
-        rightHeader.add(playAllBtn,   BorderLayout.EAST);
+        rightHeader.add(headerActions, BorderLayout.EAST);
         right.add(rightHeader, BorderLayout.NORTH);
 
         songListPanel = UiUtils.panel(Theme.BG_MAIN, null);
@@ -103,8 +121,20 @@ public class PlaylistsView extends JPanel {
     }
 
     public void refresh() {
+        Playlist previousSelected = playlistList.getSelectedValue();
         playlistModel.clear();
         library.getPlaylists().forEach(playlistModel::addElement);
+        if (previousSelected != null) {
+            for (int i = 0; i < playlistModel.size(); i++) {
+                if (playlistModel.get(i).getId().equals(previousSelected.getId())) {
+                    playlistList.setSelectedIndex(i);
+                    break;
+                }
+            }
+        }
+        if (playlistList.getSelectedIndex() < 0 && !playlistModel.isEmpty()) {
+            playlistList.setSelectedIndex(0);
+        }
         refreshSongList();
     }
 
@@ -112,15 +142,45 @@ public class PlaylistsView extends JPanel {
         Playlist sel = playlistList.getSelectedValue();
         if (sel == null) {
             playlistTitle.setText("Select a playlist");
+            addSongsBtn.setEnabled(false);
+            playAllBtn.setEnabled(false);
             songListPanel.removeAll();
         } else {
             playlistTitle.setText(sel.getName() + "  (" + sel.size() + " songs)");
+            addSongsBtn.setEnabled(true);
+
             List<Song> songs = library.getSongsForPlaylist(sel.getId());
+            playAllBtn.setEnabled(!songs.isEmpty());
             songListPanel.removeAll();
+
             if (songs.isEmpty()) {
-                JLabel empty = UiUtils.label("No songs in this playlist yet.", Theme.TEXT_MUTED, Theme.FONT_SMALL);
-                empty.setBorder(BorderFactory.createEmptyBorder(20, 20, 0, 0));
-                songListPanel.add(empty);
+                JPanel emptyPanel = new JPanel();
+                emptyPanel.setLayout(new BoxLayout(emptyPanel, BoxLayout.Y_AXIS));
+                emptyPanel.setBackground(Theme.BG_MAIN);
+                emptyPanel.setBorder(BorderFactory.createEmptyBorder(48, 24, 48, 24));
+
+                JLabel emptyIcon = UiUtils.label("▤", Theme.TEXT_MUTED, new Font(Font.SANS_SERIF, Font.PLAIN, 40));
+                emptyIcon.setAlignmentX(0.5f);
+
+                JLabel emptyLabel = UiUtils.label("This playlist is empty.", Theme.TEXT_PRIMARY, Theme.FONT_HEADING);
+                emptyLabel.setAlignmentX(0.5f);
+
+                JLabel subLabel = UiUtils.label("Add tracks from your library to start listening.", Theme.TEXT_SECONDARY, Theme.FONT_SMALL);
+                subLabel.setAlignmentX(0.5f);
+
+                JButton addBtn = UiUtils.accentButton("＋  Add Songs to Playlist");
+                addBtn.setAlignmentX(0.5f);
+                addBtn.addActionListener(e -> openAddSongsDialog());
+
+                emptyPanel.add(emptyIcon);
+                emptyPanel.add(Box.createVerticalStrut(12));
+                emptyPanel.add(emptyLabel);
+                emptyPanel.add(Box.createVerticalStrut(6));
+                emptyPanel.add(subLabel);
+                emptyPanel.add(Box.createVerticalStrut(18));
+                emptyPanel.add(addBtn);
+
+                songListPanel.add(emptyPanel);
             } else {
                 for (int i = 0; i < songs.size(); i++) {
                     songListPanel.add(songRow(sel, songs.get(i), i));
@@ -134,16 +194,38 @@ public class PlaylistsView extends JPanel {
     private JPanel songRow(Playlist playlist, Song song, int index) {
         JPanel row = new JPanel(new BorderLayout(0, 0));
         row.setBackground(Theme.BG_MAIN);
-        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 48));
+        row.setPreferredSize(new Dimension(0, 48));
         row.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder(0, 0, 1, 0, Theme.BORDER),
                 BorderFactory.createEmptyBorder(0, 16, 0, 16)));
+        row.setToolTipText(song.getTitle() + " • " + song.getArtist());
+        row.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+        JPanel left = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 6));
+        left.setBackground(Theme.BG_MAIN);
+        left.setOpaque(false);
 
         JLabel num = UiUtils.label(String.valueOf(index + 1), Theme.TEXT_MUTED, Theme.FONT_SMALL);
-        num.setPreferredSize(new Dimension(28, 44));
+        num.setPreferredSize(new Dimension(24, 34));
+        left.add(num);
+
+        JLabel artLabel = new JLabel(ArtworkCache.defaultIcon(34));
+        ImageIcon cached = ArtworkCache.getInstance().getCached(song.getFilePath(), 34);
+        if (cached != null) {
+            artLabel.setIcon(cached);
+        } else {
+            ArtworkCache.getInstance().loadAsync(song.getFilePath(), 34, icon -> {
+                artLabel.setIcon(icon);
+                artLabel.repaint();
+            });
+        }
+        left.add(artLabel);
 
         JPanel info = new JPanel(new GridLayout(2, 1));
         info.setBackground(Theme.BG_MAIN);
+        info.setOpaque(false);
+        info.setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 0));
         info.add(UiUtils.label(song.getTitle(),  Theme.TEXT_PRIMARY,   Theme.FONT_LABEL));
         info.add(UiUtils.label(song.getArtist(), Theme.TEXT_SECONDARY, Theme.FONT_SMALL));
 
@@ -151,17 +233,18 @@ public class PlaylistsView extends JPanel {
 
         JButton remove = UiUtils.iconButton("×", Theme.TEXT_MUTED, Theme.DANGER);
         remove.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 16));
+        remove.setToolTipText("Remove from playlist");
         remove.addActionListener(e -> {
             library.removeSongFromPlaylist(playlist.getId(), song.getId());
             refreshSongList();
         });
 
-        row.add(num,    BorderLayout.WEST);
+        row.add(left,   BorderLayout.WEST);
         row.add(info,   BorderLayout.CENTER);
-        row.add(dur,    BorderLayout.EAST);
 
-        JPanel rightSide = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        JPanel rightSide = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 10));
         rightSide.setBackground(Theme.BG_MAIN);
+        rightSide.setOpaque(false);
         rightSide.add(dur);
         rightSide.add(remove);
         row.add(rightSide, BorderLayout.EAST);
@@ -174,11 +257,17 @@ public class PlaylistsView extends JPanel {
                     player.playSongFromList(songs, songs.indexOf(song));
                 }
             }
-            @Override public void mouseEntered(MouseEvent e) { row.setBackground(Theme.BG_HOVER); info.setBackground(Theme.BG_HOVER); rightSide.setBackground(Theme.BG_HOVER); }
-            @Override public void mouseExited (MouseEvent e) { row.setBackground(Theme.BG_MAIN);  info.setBackground(Theme.BG_MAIN);  rightSide.setBackground(Theme.BG_MAIN); }
+            @Override public void mouseEntered(MouseEvent e) { row.setBackground(Theme.BG_HOVER); }
+            @Override public void mouseExited (MouseEvent e) { row.setBackground(Theme.BG_MAIN); }
         });
 
         return row;
+    }
+
+    private void openAddSongsDialog() {
+        Playlist sel = playlistList.getSelectedValue();
+        if (sel == null) return;
+        AddSongsDialog.showDialog(SwingUtilities.getWindowAncestor(this), sel, library, this::refreshSongList);
     }
 
     private void playAll() {
@@ -191,18 +280,33 @@ public class PlaylistsView extends JPanel {
     private void createPlaylist() {
         String name = JOptionPane.showInputDialog(this, "Playlist name:", "New Playlist", JOptionPane.PLAIN_MESSAGE);
         if (name != null && !name.isBlank()) {
-            library.createPlaylist(name.trim());
+            Playlist p = library.createPlaylist(name.trim());
             refresh();
+            playlistList.setSelectedValue(p, true);
+            // Prompt right away to add songs to the newly created playlist!
+            openAddSongsDialog();
         }
     }
 
     private void showPlaylistMenu(MouseEvent e, Playlist playlist) {
         JPopupMenu menu = new JPopupMenu();
+
+        JMenuItem play = new JMenuItem("Play All");
+        play.addActionListener(ev -> {
+            List<Song> songs = library.getSongsForPlaylist(playlist.getId());
+            if (!songs.isEmpty()) player.playSongFromList(songs, 0);
+        });
+
+        JMenuItem addSongs = new JMenuItem("Add Songs…");
+        addSongs.addActionListener(ev -> AddSongsDialog.showDialog(
+                SwingUtilities.getWindowAncestor(this), playlist, library, this::refreshSongList));
+
         JMenuItem rename = new JMenuItem("Rename");
         rename.addActionListener(ev -> {
             String name = JOptionPane.showInputDialog(this, "New name:", playlist.getName());
             if (name != null && !name.isBlank()) { library.renamePlaylist(playlist.getId(), name.trim()); refresh(); }
         });
+
         JMenuItem delete = new JMenuItem("Delete");
         delete.setForeground(Theme.DANGER);
         delete.addActionListener(ev -> {
@@ -210,7 +314,12 @@ public class PlaylistsView extends JPanel {
                     "Delete", JOptionPane.YES_NO_OPTION);
             if (r == JOptionPane.YES_OPTION) { library.deletePlaylist(playlist.getId()); refresh(); }
         });
-        menu.add(rename); menu.add(delete);
+
+        menu.add(play);
+        menu.add(addSongs);
+        menu.addSeparator();
+        menu.add(rename);
+        menu.add(delete);
         menu.show(e.getComponent(), e.getX(), e.getY());
     }
 
