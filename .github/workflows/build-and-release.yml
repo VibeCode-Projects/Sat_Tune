@@ -1,0 +1,244 @@
+name: Build and Release Sattune
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # -------------------------------------------------------------
+  # 1. LINUX BUILD (.deb & portable .tar.gz)
+  # -------------------------------------------------------------
+  build-linux:
+    name: Build Linux Packages
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'maven'
+
+      - name: Build Fat JAR with Maven
+        run: mvn clean package -DskipTests
+
+      - name: Package Linux DEB & App-Image
+        run: |
+          mkdir -p dist
+
+          # Build .deb installer
+          jpackage \
+            --type deb \
+            --name sattune \
+            --app-version 1.0.0 \
+            --vendor "Sattune" \
+            --description "Minimal Offline Desktop Music Player" \
+            --input target \
+            --main-jar sattune-1.0.0.jar \
+            --main-class com.sattune.SatTune \
+            --icon sattune.png \
+            --dest dist \
+            --linux-shortcut \
+            --linux-menu-group "Audio" \
+            --linux-app-category "Audio" \
+            --java-options "-Xmx128m" \
+            --java-options "-Xms32m"
+
+          # Build portable app-image and archive as tar.gz
+          jpackage \
+            --type app-image \
+            --name Sattune \
+            --app-version 1.0.0 \
+            --vendor "Sattune" \
+            --input target \
+            --main-jar sattune-1.0.0.jar \
+            --main-class com.sattune.SatTune \
+            --icon sattune.png \
+            --dest dist-portable \
+            --java-options "-Xmx128m" \
+            --java-options "-Xms32m"
+
+          tar -czf dist/Sattune-1.0.0-linux-x64.tar.gz -C dist-portable Sattune
+
+      - name: Upload Linux Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-dist
+          path: dist/*
+
+  # -------------------------------------------------------------
+  # 2. WINDOWS BUILD (.exe installer & portable .zip)
+  # -------------------------------------------------------------
+  build-windows:
+    name: Build Windows Packages
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'maven'
+
+      - name: Build Fat JAR with Maven
+        run: mvn clean package -DskipTests
+
+      - name: Package Windows EXE Installer & App-Image
+        shell: bash
+        run: |
+          mkdir -p dist
+
+          # Build Windows EXE installer (Inno Setup / WiX backend bundled in runner)
+          jpackage \
+            --type exe \
+            --name Sattune \
+            --app-version 1.0.0 \
+            --vendor "Sattune" \
+            --description "Minimal Offline Desktop Music Player" \
+            --input target \
+            --main-jar sattune-1.0.0.jar \
+            --main-class com.sattune.SatTune \
+            --icon sattune.ico \
+            --dest dist \
+            --win-menu \
+            --win-shortcut \
+            --win-dir-chooser \
+            --java-options "-Xmx128m" \
+            --java-options "-Xms32m"
+
+          # Build portable directory and zip
+          jpackage \
+            --type app-image \
+            --name Sattune \
+            --app-version 1.0.0 \
+            --vendor "Sattune" \
+            --input target \
+            --main-jar sattune-1.0.0.jar \
+            --main-class com.sattune.SatTune \
+            --icon sattune.ico \
+            --dest dist-portable \
+            --java-options "-Xmx128m" \
+            --java-options "-Xms32m"
+
+          powershell Compress-Archive -Path dist-portable/Sattune -DestinationPath dist/Sattune-1.0.0-windows-x64.zip
+
+      - name: Upload Windows Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-dist
+          path: dist/*
+
+  # -------------------------------------------------------------
+  # 3. MACOS (APPLE) BUILD (.dmg & .app)
+  # -------------------------------------------------------------
+  build-macos:
+    name: Build macOS Packages
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'maven'
+
+      - name: Build Fat JAR with Maven
+        run: mvn clean package -DskipTests
+
+      - name: Convert Icon to macOS ICNS
+        run: |
+          mkdir -p icon.iconset
+          sips -z 16 16     sattune.png --out icon.iconset/icon_16x16.png
+          sips -z 32 32     sattune.png --out icon.iconset/icon_16x16@2x.png
+          sips -z 32 32     sattune.png --out icon.iconset/icon_32x32.png
+          sips -z 64 64     sattune.png --out icon.iconset/icon_32x32@2x.png
+          sips -z 128 128   sattune.png --out icon.iconset/icon_128x128.png
+          sips -z 256 256   sattune.png --out icon.iconset/icon_256x256.png
+          sips -z 512 512   sattune.png --out icon.iconset/icon_256x256@2x.png
+          sips -z 512 512   sattune.png --out icon.iconset/icon_512x512.png
+          iconutil -c icns icon.iconset -o sattune.icns
+
+      - name: Package macOS DMG & App-Image
+        run: |
+          mkdir -p dist
+
+          # Build .dmg installer disk image
+          jpackage \
+            --type dmg \
+            --name Sattune \
+            --app-version 1.0.0 \
+            --vendor "Sattune" \
+            --description "Minimal Offline Desktop Music Player" \
+            --input target \
+            --main-jar sattune-1.0.0.jar \
+            --main-class com.sattune.SatTune \
+            --icon sattune.icns \
+            --dest dist \
+            --java-options "-Xmx128m" \
+            --java-options "-Xms32m"
+
+          # Build portable .app archive
+          jpackage \
+            --type app-image \
+            --name Sattune \
+            --app-version 1.0.0 \
+            --vendor "Sattune" \
+            --input target \
+            --main-jar sattune-1.0.0.jar \
+            --main-class com.sattune.SatTune \
+            --icon sattune.icns \
+            --dest dist-portable \
+            --java-options "-Xmx128m" \
+            --java-options "-Xms32m"
+
+          tar -czf dist/Sattune-1.0.0-macos.tar.gz -C dist-portable Sattune.app
+
+      - name: Upload macOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dist
+          path: dist/*
+
+  # -------------------------------------------------------------
+  # 4. CROSS-PLATFORM FAT JAR & GITHUB RELEASE
+  # -------------------------------------------------------------
+  release:
+    name: Create GitHub Release
+    needs: [build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-files
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-files/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
